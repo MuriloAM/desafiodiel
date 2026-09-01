@@ -1,0 +1,26 @@
+# ide configs
+.vscode/
+.idea/
+.clangd/
+.ccls-cache/
+
+# esp-idf built binaries
+build/
+build_*_*/
+sdkconfig
+sdkconfig.old
+
+# idf-ci build run output
+build_summary_*.xml
+app_info_*.txt
+size_info_*.txt
+*.log
+*.o
+
+# pytest-embedded log folder
+.pytest_cache/
+__pycache__/
+pytest_embedded_log/
+
+# idf-component-manager output
+dependencies.lock
