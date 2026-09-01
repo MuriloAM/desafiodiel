@@ -1,2 +1,21 @@
-# desafiodiel
-telemetria pra sensores utilizando mqtt.
+# Desafio diel
+Projeto destinado a solução de desafio da diel telemetria pra sensores utilizando mqtt.
+
+## Requisitos de hardware
+
+
+
+## Usage
+
+
+
+## Contributing
+
+Pull requests are welcome. For major changes, please open an issue first
+to discuss what you would like to change.
+
+Please make sure to update tests as appropriate.
+
+## License
+
+[MIT](https://choosealicense.com/licenses/mit/)
