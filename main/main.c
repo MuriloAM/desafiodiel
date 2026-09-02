@@ -7,12 +7,26 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 
 #include "iot_button.h"
 #include "button_gpio.h"
 #include "mqtt_client.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
+
+typedef enum
+{
+    ID_BUTTON_SINGLE_CLICK = 0,
+    ID_BUTTON_DOUBLE_CLICK,
+    ID_MAX
+} id_t;
+
+typedef struct
+{
+    uint32_t id;
+    void *buffer;
+} msg_t;
 
 // defines.
 #define APP_MAIN_TASK_PRIORITY (tskIDLE_PRIORITY + 5)
@@ -35,6 +49,7 @@ static const char *TAG = "esp_app";
 static esp_netif_t *esp_netif_sta = NULL;
 static esp_event_handler_instance_t instance_any_id = NULL;
 static esp_event_handler_instance_t instance_got_ip = NULL;
+static QueueHandle_t xQueue = NULL;
 
 // functions prototypes.
 static esp_err_t app_button_init(button_handle_t *btn);
@@ -126,12 +141,8 @@ static void mqtt_event_handler(void *arg, esp_event_base_t event_base,
 
 static void button_single_click_event_cb(void *arg, void *data)
 {
-    ESP_LOGI(TAG, "Button single click");
-}
-
-static void button_double_click_event_cb(void *arg, void *data)
-{
-    ESP_LOGI(TAG, "Button double click");
+    msg_t msg = {.id = ID_BUTTON_SINGLE_CLICK, .buffer = NULL};
+    xQueueSend(xQueue, &msg, portMAX_DELAY);
 }
 
 static esp_err_t app_button_init(button_handle_t *btn)
@@ -202,7 +213,10 @@ static void app_wifi_init()
 // --- tasks da aplicacao ---
 static void app_main_task(void *pvParameters)
 {
-    ESP_LOGI(TAG, "%s [start]", __func__);
+    bool is_button_active = false;
+
+    if (xQueue == NULL)
+        xQueue = xQueueCreate(10, sizeof(msg_t));
 
     // init gpio button
     button_handle_t btn = NULL;
@@ -210,12 +224,31 @@ static void app_main_task(void *pvParameters)
     // Register callback for button press
     esp_err_t ret = iot_button_register_cb(btn, BUTTON_SINGLE_CLICK, NULL, button_single_click_event_cb, NULL);
     ESP_ERROR_CHECK(ret);
-    ret = iot_button_register_cb(btn, BUTTON_DOUBLE_CLICK, NULL, button_double_click_event_cb, NULL);
-    ESP_ERROR_CHECK(ret);
 
     for (;;)
     {
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        msg_t xMsg;
+        if (xQueueReceive(xQueue, &xMsg, portMAX_DELAY) == pdTRUE)
+        {
+            if (xMsg.id == ID_BUTTON_SINGLE_CLICK)
+            {
+                /* send mqtt msg onclick */
+                if (is_button_active)
+                {
+                    is_button_active = false;
+                    ESP_LOGI(TAG, "Button:OFF");
+                }
+                else
+                {
+                    is_button_active = true;
+                    ESP_LOGI(TAG, "Button:ON");
+                }
+            }
+            else if (xMsg.id == ID_MAX)
+            {
+                /* code */
+            }
+        }
     }
 }
 
