@@ -17,6 +17,9 @@
 
 // statics variables.
 static const char *TAG = "esp_app";
+static esp_netif_t *esp_netif_sta = NULL;
+static esp_event_handler_instance_t instance_any_id = NULL;
+static esp_event_handler_instance_t instance_got_ip = NULL;
 
 // functions prototypes.
 static void app_wifi_init(void);
@@ -46,25 +49,29 @@ static void event_handler(void *arg, esp_event_base_t event_base,
 
 static void app_wifi_init()
 {
-    ESP_ERROR_CHECK(esp_netif_init());
-    esp_netif_create_default_wifi_sta();
+    // gurad to start esp netif stack once.
+    if (esp_netif_is_netif_up(esp_netif_sta) == false)
+    {
+        ESP_ERROR_CHECK(esp_netif_init());
+        esp_netif_sta = esp_netif_create_default_wifi_sta();
+    }
+    if (instance_any_id == NULL)
+        ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
+                                                            ESP_EVENT_ANY_ID,
+                                                            &event_handler,
+                                                            NULL,
+                                                            &instance_any_id));
+    if (instance_got_ip == NULL)
+        ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
+                                                            IP_EVENT_STA_GOT_IP,
+                                                            &event_handler,
+                                                            NULL,
+                                                            &instance_got_ip));
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_FLASH));
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
-    esp_event_handler_instance_t instance_any_id;
-    esp_event_handler_instance_t instance_got_ip;
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
-                                                        ESP_EVENT_ANY_ID,
-                                                        &event_handler,
-                                                        NULL,
-                                                        &instance_any_id));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
-                                                        IP_EVENT_STA_GOT_IP,
-                                                        &event_handler,
-                                                        NULL,
-                                                        &instance_got_ip));
     wifi_config_t wifi_conf = {.sta = {.ssid = CONFIG_WIFI_SSID, .password = CONFIG_WIFI_PSWD}};
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_conf));
     ESP_ERROR_CHECK(esp_wifi_start());
