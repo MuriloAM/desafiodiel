@@ -3,6 +3,7 @@
 #include "esp_event.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "esp_wifi.h"
 
 #include "freertos/FreeRTOS.h"
@@ -27,6 +28,11 @@ typedef struct
     uint32_t id;
     void *buffer;
 } msg_t;
+
+typedef struct {
+    uint32_t id;
+    uint32_t value;
+} sensor_data_t;
 
 // defines.
 #define APP_MAIN_TASK_PRIORITY (tskIDLE_PRIORITY + 5)
@@ -53,6 +59,7 @@ static QueueHandle_t xQueue = NULL;
 
 // functions prototypes.
 static esp_err_t app_button_init(button_handle_t *btn);
+static esp_err_t app_sensor_get_value(sensor_data_t *data);
 static void app_mqtt_init(void);
 static void app_wifi_init(void);
 static void button_single_click_event_cb(void *arg, void *data);
@@ -160,6 +167,14 @@ static esp_err_t app_button_init(button_handle_t *btn)
     esp_err_t ret = iot_button_new_gpio_device(&btn_cfg, &btn_gpio_cfg, &new_btn);
     *btn = new_btn;
     return ret;
+}
+
+static esp_err_t app_sensor_get_value(sensor_data_t *data)
+{
+    uint8_t buff[4];
+    esp_fill_random(buff, 4);
+    memcpy(&data->value, buff, 4);
+    return ESP_OK;
 }
 
 static void app_mqtt_init()
