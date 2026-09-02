@@ -8,12 +8,19 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "iot_button.h"
+#include "button_gpio.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
 
 // defines.
 #define APP_MAIN_TASK_PRIORITY (tskIDLE_PRIORITY + 5)
 #define APP_MAIN_TASK_STACK (1024 * 2)
+// GPIO button
+#define APP_BUTTON_LONG_PRESS_TIME (2000)
+#define APP_BUTTON_SHORT_PRESS_TIME (200)
+#define APP_BUTTON_0_ACTIVE_LEVEL (0)
+#define APP_BUTTON_0_GPIO (0)
 
 // statics variables.
 static const char *TAG = "esp_app";
@@ -23,6 +30,9 @@ static esp_event_handler_instance_t instance_got_ip = NULL;
 
 // functions prototypes.
 static void app_wifi_init(void);
+static esp_err_t app_button_init(button_handle_t *btn);
+static void button_single_click_event_cb(void *arg, void *data);
+static void button_double_click_event_cb(void *arg, void *data);
 
 // task prototypes.
 static void app_main_task(void *pvParameters);
@@ -45,6 +55,33 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
     }
+}
+
+static void button_single_click_event_cb(void *arg, void *data)
+{
+    ESP_LOGI(TAG, "Button single click");
+}
+
+static void button_double_click_event_cb(void *arg, void *data)
+{
+    ESP_LOGI(TAG, "Button double click");
+}
+
+static esp_err_t app_button_init(button_handle_t *btn)
+{
+    const button_config_t btn_cfg = {
+        .long_press_time = APP_BUTTON_LONG_PRESS_TIME,
+        .short_press_time = APP_BUTTON_SHORT_PRESS_TIME};
+    const button_gpio_config_t btn_gpio_cfg = {
+        .gpio_num = APP_BUTTON_0_GPIO,
+        .active_level = APP_BUTTON_0_ACTIVE_LEVEL,
+        .disable_pull = false};
+    // Button handle
+    button_handle_t new_btn;
+    // Create a new button device
+    esp_err_t ret = iot_button_new_gpio_device(&btn_cfg, &btn_gpio_cfg, &new_btn);
+    *btn = new_btn;
+    return ret;
 }
 
 static void app_wifi_init()
@@ -81,6 +118,16 @@ static void app_wifi_init()
 static void app_main_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "%s [start]", __func__);
+
+    // init gpio button
+    button_handle_t btn = NULL;
+    ESP_ERROR_CHECK(app_button_init(&btn));
+    // Register callback for button press
+    esp_err_t ret = iot_button_register_cb(btn, BUTTON_SINGLE_CLICK, NULL, button_single_click_event_cb, NULL);
+    ESP_ERROR_CHECK(ret);
+    ret = iot_button_register_cb(btn, BUTTON_DOUBLE_CLICK, NULL, button_double_click_event_cb, NULL);
+    ESP_ERROR_CHECK(ret);
+
     for (;;)
     {
         vTaskDelay(pdMS_TO_TICKS(1000));
