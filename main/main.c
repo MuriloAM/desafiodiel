@@ -9,6 +9,20 @@
 
 #include "nvs_flash.h"
 
+// defines.
+#define APP_MAIN_TASK_PRIORITY (tskIDLE_PRIORITY + 5)
+#define APP_MAIN_TASK_STACK (1024 * 2)
+
+// statics variables.
+static const char *TAG = "esp_app";
+
+// functions prototypes.
+static void app_wifi_init(void);
+
+// task prototypes.
+static void app_main_task(void *pvParameters);
+
+// --- funcoes handlers / auxiliares ---
 static void app_wifi_init()
 {
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -17,6 +31,16 @@ static void app_wifi_init()
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_FLASH));
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     ESP_ERROR_CHECK(esp_wifi_start());
+}
+
+// --- tasks da aplicacao ---
+static void app_main_task(void *pvParameters)
+{
+    ESP_LOGI(TAG, "%s [start]", __func__);
+    for (;;)
+    {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
 }
 
 void app_main(void)
@@ -36,5 +60,14 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     app_wifi_init();
+
+    xTaskCreatePinnedToCore(
+        app_main_task,          // Task function.
+        "app_main_task",        // Task name function.
+        APP_MAIN_TASK_STACK,    // Size of task stack.
+        NULL,                   // Pointer to pass parameter in task creation.
+        APP_MAIN_TASK_PRIORITY, // Priority that task should run.
+        NULL,                   // Handle for reference the created task.
+        APP_CPU_NUM);           // Core to run this task.
 
 }
