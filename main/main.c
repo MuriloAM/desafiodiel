@@ -2,12 +2,14 @@
 
 #include "esp_event.h"
 #include "esp_err.h"
+#include "esp_log.h"
 #include "esp_wifi.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "nvs_flash.h"
+#include "sdkconfig.h"
 
 // defines.
 #define APP_MAIN_TASK_PRIORITY (tskIDLE_PRIORITY + 5)
@@ -23,13 +25,48 @@ static void app_wifi_init(void);
 static void app_main_task(void *pvParameters);
 
 // --- funcoes handlers / auxiliares ---
+static void event_handler(void *arg, esp_event_base_t event_base,
+                          int32_t event_id, void *event_data)
+{
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START)
+    {
+        esp_wifi_connect();
+    }
+    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED)
+    {
+        esp_wifi_connect();
+        ESP_LOGI(TAG, "retry to connect to the AP");
+    }
+    else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
+    {
+        ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
+        ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
+    }
+}
+
 static void app_wifi_init()
 {
+    ESP_ERROR_CHECK(esp_netif_init());
+    esp_netif_create_default_wifi_sta();
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_FLASH));
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+    esp_event_handler_instance_t instance_any_id;
+    esp_event_handler_instance_t instance_got_ip;
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
+                                                        ESP_EVENT_ANY_ID,
+                                                        &event_handler,
+                                                        NULL,
+                                                        &instance_any_id));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
+                                                        IP_EVENT_STA_GOT_IP,
+                                                        &event_handler,
+                                                        NULL,
+                                                        &instance_got_ip));
+    wifi_config_t wifi_conf = {.sta = {.ssid = CONFIG_WIFI_SSID, .password = CONFIG_WIFI_PSWD}};
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_conf));
     ESP_ERROR_CHECK(esp_wifi_start());
 }
 
@@ -69,5 +106,4 @@ void app_main(void)
         APP_MAIN_TASK_PRIORITY, // Priority that task should run.
         NULL,                   // Handle for reference the created task.
         APP_CPU_NUM);           // Core to run this task.
-
 }

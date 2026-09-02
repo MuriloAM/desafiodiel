@@ -1,0 +1,28 @@
+menu "Desafio Diel config"
+
+    config WIFI_SSID
+        string "WiFi SSID"
+        default ""
+        help
+            Nome da rede WiFi 2.4GHz para conectar o dispositivo.
+
+    config WIFI_PSWD
+        string "WiFi Password"
+        default ""
+        help
+            Senha do WiFi (WPA ou WPA2).
+
+    config MQTT
+        string "URL do broker mqtt"
+        default ""
+        # depends on MQTT_TLS
+        help
+            Endereço url do broker mqtt.
+
+    config MQTT_TLS
+        bool "Habilitar conexão segura com broker"
+        default n
+        help
+            Habilita conexão segura, requer chave *.pem.
+
+endmenu
