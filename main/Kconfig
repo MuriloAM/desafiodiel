@@ -12,17 +12,4 @@ menu "Desafio Diel config"
         help
             Senha do WiFi (WPA ou WPA2).
 
-    config MQTT
-        string "URL do broker mqtt"
-        default ""
-        # depends on MQTT_TLS
-        help
-            Endereço url do broker mqtt.
-
-    config MQTT_TLS
-        bool "Habilitar conexão segura com broker"
-        default n
-        help
-            Habilita conexão segura, requer chave *.pem.
-
 endmenu
