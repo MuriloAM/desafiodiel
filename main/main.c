@@ -22,6 +22,7 @@ typedef enum
 {
     ID_BUTTON_SINGLE_CLICK = 0,
     ID_TIMER_TRIG,
+    ID_MQTT_SEND,
     ID_MAX
 } id_t;
 
@@ -41,7 +42,9 @@ typedef struct
 // defines.
 #define APP_MAIN_TASK_PRIORITY (tskIDLE_PRIORITY + 5)
 #define APP_MAIN_TASK_STACK (1024 * 2)
-#define APP_DEFAULT_INTERVAL (5 * 1000 * 1000)
+#define APP_MQTT_TASK_PRIORITY (tskIDLE_PRIORITY + 10)
+#define APP_MQTT_TASK_STACK (1024 * 2)
+#define APP_DEFAULT_INTERVAL (30 * 1000 * 1000)
 // GPIO button
 #define APP_BUTTON_LONG_PRESS_TIME (2000)
 #define APP_BUTTON_SHORT_PRESS_TIME (200)
@@ -51,6 +54,7 @@ typedef struct
 #define MQTT_BROKER_URI "mqtts://broker.emqx.io:8883" //"mqtt.eclipse.org" //"broker.hivemq.com"//
 #define MQTT_TOPIC_CMD_SUB "desafiodiel/murilo/esp32/cmd"
 #define MQTT_TOPIC_CMD_PUB "desafiodiel/murilo/esp32/status"
+#define MQTT_TOPIC_CMD_QOS (0)
 /* Embedded Mosquitto CA certificate for test.mosquitto.org:8883 */
 extern const uint8_t mqtt_crt_start[] asm("_binary_broker_emqx_io_ca_crt_start");
 extern const uint8_t mqtt_crt_end[] asm("_binary_broker_emqx_io_ca_crt_end");
@@ -58,20 +62,25 @@ extern const uint8_t mqtt_crt_end[] asm("_binary_broker_emqx_io_ca_crt_end");
 // statics variables.
 static const char *TAG = "esp_app";
 static esp_netif_t *esp_netif_sta = NULL;
+static esp_mqtt_client_handle_t mqtt_client = NULL;
 static esp_event_handler_instance_t instance_any_id = NULL;
 static esp_event_handler_instance_t instance_got_ip = NULL;
+static TaskHandle_t xMqttTask = NULL;
 static QueueHandle_t xQueue = NULL;
+static QueueHandle_t xQueueMqtt = NULL;
 
 // functions prototypes.
 static esp_err_t app_button_init(button_handle_t *btn);
 static esp_err_t app_encapsulate_msg(data_t *data, char **out_buffer);
 static esp_err_t app_sensor_get_value(uint32_t *data);
 static void app_mqtt_init(void);
+static void app_mqtt_task_init(void);
 static void app_wifi_init(void);
 static void button_single_click_event_cb(void *arg, void *data);
 
 // task prototypes.
 static void app_main_task(void *pvParameters);
+static void app_mqtt_task(void *pvParameters);
 
 // --- funcoes handlers / auxiliares ---
 static void event_handler(void *arg, esp_event_base_t event_base,
@@ -98,15 +107,15 @@ static void mqtt_event_handler(void *arg, esp_event_base_t event_base,
                                int32_t event_id, void *event_data)
 {
     esp_mqtt_event_handle_t event = event_data;
-    esp_mqtt_client_handle_t client = event->client;
+    esp_mqtt_client_handle_t mqtt_client = event->client;
     int msg_id;
     switch ((esp_mqtt_event_id_t)event_id)
     {
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-        msg_id = esp_mqtt_client_subscribe(client, MQTT_TOPIC_CMD_SUB, 0);
+        msg_id = esp_mqtt_client_subscribe(mqtt_client, MQTT_TOPIC_CMD_SUB, 0);
         ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
-        msg_id = esp_mqtt_client_publish(client, MQTT_TOPIC_CMD_PUB, "data", 0, 0, 0);
+        msg_id = esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_CMD_PUB, "data", 0, 0, 0);
         ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
         break;
     case MQTT_EVENT_DISCONNECTED:
@@ -201,15 +210,30 @@ static void app_mqtt_init()
             .address.uri = MQTT_BROKER_URI,
             .verification.certificate = (const char *)mqtt_crt_start},
     };
-    esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
-    if (client == NULL)
+    mqtt_client = esp_mqtt_client_init(&mqtt_cfg);
+    if (mqtt_client == NULL)
     {
         ESP_LOGE(TAG, "can't create mqtt client");
         return;
     }
 
-    esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
-    esp_mqtt_client_start(client);
+    esp_mqtt_client_register_event(mqtt_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
+    esp_mqtt_client_start(mqtt_client);
+}
+
+static void app_mqtt_task_init()
+{
+    if (xMqttTask == NULL)
+    {
+        xTaskCreatePinnedToCore(
+            app_mqtt_task,          // Task function.
+            "app_mqtt_task",        // Task name function.
+            APP_MQTT_TASK_STACK,    // Size of task stack.
+            NULL,                   // Pointer to pass parameter in task creation.
+            APP_MQTT_TASK_PRIORITY, // Priority that task should run.
+            &xMqttTask,             // Handle for reference the created task.
+            APP_CPU_NUM);           // Core to run this task.
+    }
 }
 
 static void app_wifi_init()
@@ -249,6 +273,36 @@ static void s_periodic_timer_callback(void *arg)
 }
 
 // --- tasks da aplicacao ---
+static void app_mqtt_task(void *pvParameters)
+{
+    if (xQueueMqtt == NULL)
+    {
+        xQueueMqtt = xQueueCreate(10, sizeof(msg_t));
+    }
+
+    for (;;)
+    {
+        msg_t xMsg;
+        if (xQueueReceive(xQueueMqtt, &xMsg, portMAX_DELAY) == pdTRUE)
+        {
+            if (xMsg.id == ID_MQTT_SEND)
+            {
+                size_t msg_len = strlen((const char *)xMsg.buffer);
+                ESP_LOGI(TAG, "MQTT send:%s len:%d", (const char *)xMsg.buffer, msg_len);
+                esp_mqtt_client_publish(
+                    mqtt_client,
+                    MQTT_TOPIC_CMD_PUB,
+                    (const char *)xMsg.buffer,
+                    msg_len,
+                    MQTT_TOPIC_CMD_QOS,
+                    0);
+
+                heap_caps_free(xMsg.buffer);
+            }
+        }
+    }
+}
+
 static void app_main_task(void *pvParameters)
 {
     data_t data_sys = {
@@ -266,6 +320,9 @@ static void app_main_task(void *pvParameters)
     esp_err_t ret = iot_button_register_cb(btn, BUTTON_SINGLE_CLICK, NULL, button_single_click_event_cb, NULL);
     ESP_ERROR_CHECK(ret);
 
+    // init mqtt task.
+    app_mqtt_task_init();
+
     // Timer to controll periodic mensages.
     esp_timer_handle_t periodic_timer;
     const esp_timer_create_args_t periodic_timer_args = {
@@ -280,6 +337,7 @@ static void app_main_task(void *pvParameters)
         msg_t xMsg;
         if (xQueueReceive(xQueue, &xMsg, portMAX_DELAY) == pdTRUE)
         {
+            char *msg_json = NULL;
             if (xMsg.id == ID_BUTTON_SINGLE_CLICK)
             {
                 /* send mqtt msg onclick */
@@ -297,26 +355,21 @@ static void app_main_task(void *pvParameters)
                 app_sensor_get_value(&data_sys.sensor1);
                 app_sensor_get_value(&data_sys.sensor2);
                 // encapsulate message to json format.
-                char *msg_json = NULL;
                 app_encapsulate_msg(&data_sys, (void *)&msg_json);
-                if (msg_json != NULL)
-                {
-                    ESP_LOGI(TAG, "msg_json:%s", msg_json);
-                    heap_caps_free(msg_json);
-                }
             }
             else if (xMsg.id == ID_TIMER_TRIG)
             {
-                /* create message buffer in json */
-                // sendo via mqtt if connected to the broken.
                 app_sensor_get_value(&data_sys.sensor1);
                 app_sensor_get_value(&data_sys.sensor2);
-                ESP_LOGI(TAG, "TimerTrigg sensor1:%.4d sensor2:%.4d button_status:%s",
-                         data_sys.sensor1, data_sys.sensor2, data_sys.button_state ? "ON" : "OFF");
+                app_encapsulate_msg(&data_sys, (void *)&msg_json);
             }
-            else if (xMsg.id == ID_MAX)
+
+            if (msg_json != NULL)
             {
-                /* code */
+                msg_t data = {
+                    .id = ID_MQTT_SEND,
+                    .buffer = msg_json};
+                xQueueSend(xQueueMqtt, &data, portMAX_DELAY);
             }
         }
     }
