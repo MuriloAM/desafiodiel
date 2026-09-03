@@ -4,6 +4,7 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_random.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 
 #include "freertos/FreeRTOS.h"
@@ -19,7 +20,7 @@
 typedef enum
 {
     ID_BUTTON_SINGLE_CLICK = 0,
-    ID_BUTTON_DOUBLE_CLICK,
+    ID_TIMER_TRIG,
     ID_MAX
 } id_t;
 
@@ -29,14 +30,17 @@ typedef struct
     void *buffer;
 } msg_t;
 
-typedef struct {
-    uint32_t id;
-    uint32_t value;
-} sensor_data_t;
+typedef struct
+{
+    bool button_state;
+    uint32_t sensor1;
+    uint32_t sensor2;
+} data_t;
 
 // defines.
 #define APP_MAIN_TASK_PRIORITY (tskIDLE_PRIORITY + 5)
 #define APP_MAIN_TASK_STACK (1024 * 2)
+#define APP_DEFAULT_INTERVAL (5 * 1000 * 1000)
 // GPIO button
 #define APP_BUTTON_LONG_PRESS_TIME (2000)
 #define APP_BUTTON_SHORT_PRESS_TIME (200)
@@ -59,11 +63,10 @@ static QueueHandle_t xQueue = NULL;
 
 // functions prototypes.
 static esp_err_t app_button_init(button_handle_t *btn);
-static esp_err_t app_sensor_get_value(sensor_data_t *data);
+static esp_err_t app_sensor_get_value(uint32_t *data);
 static void app_mqtt_init(void);
 static void app_wifi_init(void);
 static void button_single_click_event_cb(void *arg, void *data);
-static void button_double_click_event_cb(void *arg, void *data);
 
 // task prototypes.
 static void app_main_task(void *pvParameters);
@@ -169,11 +172,11 @@ static esp_err_t app_button_init(button_handle_t *btn)
     return ret;
 }
 
-static esp_err_t app_sensor_get_value(sensor_data_t *data)
+static esp_err_t app_sensor_get_value(uint32_t *data)
 {
     uint8_t buff[4];
     esp_fill_random(buff, 4);
-    memcpy(&data->value, buff, 4);
+    memcpy(data, buff, 4);
     return ESP_OK;
 }
 
@@ -225,10 +228,19 @@ static void app_wifi_init()
     ESP_ERROR_CHECK(esp_wifi_start());
 }
 
+static void s_periodic_timer_callback(void *arg)
+{
+    msg_t msg = {.id = ID_TIMER_TRIG, .buffer = NULL};
+    xQueueSend(xQueue, &msg, portMAX_DELAY);
+}
+
 // --- tasks da aplicacao ---
 static void app_main_task(void *pvParameters)
 {
-    bool is_button_active = false;
+    data_t data_sys = {
+        .button_state = false,
+        .sensor1 = 0,
+        .sensor2 = 0};
 
     if (xQueue == NULL)
         xQueue = xQueueCreate(10, sizeof(msg_t));
@@ -240,6 +252,15 @@ static void app_main_task(void *pvParameters)
     esp_err_t ret = iot_button_register_cb(btn, BUTTON_SINGLE_CLICK, NULL, button_single_click_event_cb, NULL);
     ESP_ERROR_CHECK(ret);
 
+    // Timer to controll periodic mensages.
+    esp_timer_handle_t periodic_timer;
+    const esp_timer_create_args_t periodic_timer_args = {
+        .callback = &s_periodic_timer_callback,
+        .arg = xTaskGetCurrentTaskHandle(),
+        .name = "battery_timer"};
+    ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
+    ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, APP_DEFAULT_INTERVAL));
+
     for (;;)
     {
         msg_t xMsg;
@@ -248,16 +269,29 @@ static void app_main_task(void *pvParameters)
             if (xMsg.id == ID_BUTTON_SINGLE_CLICK)
             {
                 /* send mqtt msg onclick */
-                if (is_button_active)
+                if (data_sys.button_state)
                 {
-                    is_button_active = false;
+                    data_sys.button_state = false;
                     ESP_LOGI(TAG, "Button:OFF");
                 }
                 else
                 {
-                    is_button_active = true;
+                    data_sys.button_state = true;
                     ESP_LOGI(TAG, "Button:ON");
                 }
+                app_sensor_get_value(&data_sys.sensor1);
+                app_sensor_get_value(&data_sys.sensor2);
+                ESP_LOGI(TAG, "ButtonClick sensor1:%.4d sensor2:%.4d button_status:%s",
+                         data_sys.sensor1, data_sys.sensor2, data_sys.button_state ? "ON" : "OFF");
+            }
+            else if (xMsg.id == ID_TIMER_TRIG)
+            {
+                /* create message buffer in json */
+                // sendo via mqtt if connected to the broken.
+                app_sensor_get_value(&data_sys.sensor1);
+                app_sensor_get_value(&data_sys.sensor2);
+                ESP_LOGI(TAG, "TimerTrigg sensor1:%.4d sensor2:%.4d button_status:%s",
+                         data_sys.sensor1, data_sys.sensor2, data_sys.button_state ? "ON" : "OFF");
             }
             else if (xMsg.id == ID_MAX)
             {
