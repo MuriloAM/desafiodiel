@@ -16,3 +16,4 @@ dependencies:
   #   public: true
   espressif/button: =*
   espressif/mqtt: '*'
+  espressif/cjson: '*'

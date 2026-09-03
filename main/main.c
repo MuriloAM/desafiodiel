@@ -11,6 +11,7 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 
+#include "cJSON.h"
 #include "iot_button.h"
 #include "button_gpio.h"
 #include "mqtt_client.h"
@@ -63,6 +64,7 @@ static QueueHandle_t xQueue = NULL;
 
 // functions prototypes.
 static esp_err_t app_button_init(button_handle_t *btn);
+static esp_err_t app_encapsulate_msg(data_t *data, char **out_buffer);
 static esp_err_t app_sensor_get_value(uint32_t *data);
 static void app_mqtt_init(void);
 static void app_wifi_init(void);
@@ -172,6 +174,18 @@ static esp_err_t app_button_init(button_handle_t *btn)
     return ret;
 }
 
+static esp_err_t app_encapsulate_msg(data_t *data, char **out_buffer)
+{
+    cJSON *root;
+    root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "sensor1", data->sensor1);
+    cJSON_AddNumberToObject(root, "sensor2", data->sensor2);
+    cJSON_AddStringToObject(root, "button", data->button_state ? "ON" : "OFF");
+    *out_buffer = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
 static esp_err_t app_sensor_get_value(uint32_t *data)
 {
     uint8_t buff[4];
@@ -279,10 +293,17 @@ static void app_main_task(void *pvParameters)
                     data_sys.button_state = true;
                     ESP_LOGI(TAG, "Button:ON");
                 }
+                // update sensor values
                 app_sensor_get_value(&data_sys.sensor1);
                 app_sensor_get_value(&data_sys.sensor2);
-                ESP_LOGI(TAG, "ButtonClick sensor1:%.4d sensor2:%.4d button_status:%s",
-                         data_sys.sensor1, data_sys.sensor2, data_sys.button_state ? "ON" : "OFF");
+                // encapsulate message to json format.
+                char *msg_json = NULL;
+                app_encapsulate_msg(&data_sys, (void *)&msg_json);
+                if (msg_json != NULL)
+                {
+                    ESP_LOGI(TAG, "msg_json:%s", msg_json);
+                    heap_caps_free(msg_json);
+                }
             }
             else if (xMsg.id == ID_TIMER_TRIG)
             {
