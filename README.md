@@ -46,15 +46,23 @@ desafiodiel/murilo/esp32/cmd
 
 ### Compilar e gravar
 
+Antes de compilar o projeto certifique-se o código encontra-se na release-v1.0, abra o esp-idf terminal verifique em qual endereço associado ao dispositivo e execute o comando:
 
+```bash
+idf.py -p /dev/ttyUSBx build flash monitor
+```
 
-## Contributing
+### Saída esperada
+O funcionamento correto deve apresentar a saída abaixo:
 
-Pull requests are welcome. For major changes, please open an issue first
-to discuss what you would like to change.
+![saida-esperada](img/saida-esperada.png)
 
-Please make sure to update tests as appropriate.
+## Contribuindo
 
-## License
+Pull requests são bem vindos. Para mudanças maiores por favor abra um apontamento de problema primeiro para discutir o que gostaria de mudar.ge.
+
+Por favor atualize testes de forma apropriada.
+
+## Licenças
 
 [MIT](https://choosealicense.com/licenses/mit/)
