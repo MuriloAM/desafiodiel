@@ -1,0 +1,15 @@
+menu "Desafio Diel config"
+
+    config WIFI_SSID
+        string "WiFi SSID"
+        default ""
+        help
+            Nome da rede WiFi 2.4GHz para conectar o dispositivo.
+
+    config WIFI_PSWD
+        string "WiFi Password"
+        default ""
+        help
+            Senha do WiFi (WPA ou WPA2).
+
+endmenu
