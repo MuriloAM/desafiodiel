@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 
 #include "esp_event.h"
 #include "esp_err.h"
@@ -51,7 +52,7 @@ typedef struct
 #define APP_BUTTON_0_ACTIVE_LEVEL (0)
 #define APP_BUTTON_0_GPIO (0)
 // MQTT.
-#define MQTT_BROKER_URI "mqtts://broker.emqx.io:8883" //"mqtt.eclipse.org" //"broker.hivemq.com"//
+#define MQTT_BROKER_URI "mqtts://broker.emqx.io:8883"
 #define MQTT_TOPIC_CMD_SUB "desafiodiel/murilo/esp32/cmd"
 #define MQTT_TOPIC_CMD_PUB "desafiodiel/murilo/esp32/status"
 #define MQTT_TOPIC_CMD_QOS (0)
@@ -115,8 +116,6 @@ static void mqtt_event_handler(void *arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
         msg_id = esp_mqtt_client_subscribe(mqtt_client, MQTT_TOPIC_CMD_SUB, 0);
         ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
-        msg_id = esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_CMD_PUB, "data", 0, 0, 0);
-        ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
